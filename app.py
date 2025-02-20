@@ -1,20 +1,17 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 import csv
 import copy
 import argparse
 import itertools
 from collections import Counter
 from collections import deque
-
 import cv2 as cv
 import numpy as np
 import mediapipe as mp
-
+import serial.tools.list_ports
 from utils import CvFpsCalc
 from model import KeyPointClassifier
 from model import PointHistoryClassifier
-
+import time
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -39,7 +36,25 @@ def get_args():
 
 
 def main():
-    # Argument parsing #################################################################
+    # to parse the argument and add the ncessary updates to the code
+    ports = serial.tools.list_ports.comports()
+    serialInst = serial.Serial()
+    portsList = []
+
+    for one in ports:
+        portsList.append(str(one))
+        print(str(one))
+
+    com = input("Select Com Port for Arduino #: ")
+
+    for i in range(len(portsList)):
+        if portsList[i].startswith("COM" + str(com)):
+            use = "COM" + str(com)
+            print(use)
+
+    serialInst.baudrate = 9600
+    serialInst.port = use
+    serialInst.open()
     args = get_args()
 
     cap_device = args.device
@@ -52,22 +67,22 @@ def main():
 
     use_brect = True
 
-    # Camera preparation ###############################################################
+    # camera preparation
     cap = cv.VideoCapture(cap_device)
     cap.set(cv.CAP_PROP_FRAME_WIDTH, cap_width)
     cap.set(cv.CAP_PROP_FRAME_HEIGHT, cap_height)
 
-    # Model load #############################################################
+    # loading mediapipe's hand model
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
         static_image_mode=use_static_image_mode,
-        max_num_hands=1,
+        max_num_hands=4,
         min_detection_confidence=min_detection_confidence,
         min_tracking_confidence=min_tracking_confidence,
     )
 
     keypoint_classifier = KeyPointClassifier()
-
+    previous=""
     point_history_classifier = PointHistoryClassifier()
 
     # Read labels ###########################################################
@@ -141,10 +156,8 @@ def main():
 
                 # Hand sign classification
                 hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
-                if hand_sign_id == 2:  # Point gesture
-                    point_history.append(landmark_list[8])
-                else:
-                    point_history.append([0, 0])
+                point_history.append([0, 0])
+                
 
                 # Finger gesture classification
                 finger_gesture_id = 0
@@ -161,13 +174,11 @@ def main():
                 # Drawing part
                 debug_image = draw_bounding_rect(use_brect, debug_image, brect)
                 debug_image = draw_landmarks(debug_image, landmark_list)
-                debug_image = draw_info_text(
-                    debug_image,
-                    brect,
-                    handedness,
-                    keypoint_classifier_labels[hand_sign_id],
-                    point_history_classifier_labels[most_common_fg_id[0][0]],
-                )
+                print(f"Hand Sign: {keypoint_classifier_labels[hand_sign_id]}")
+                previous = keypoint_classifier_labels[hand_sign_id]
+                serialInst.write(previous.encode('utf-8'))
+                time.sleep(3)
+
         else:
             point_history.append([0, 0])
 
